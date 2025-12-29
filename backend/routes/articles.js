@@ -28,3 +28,4 @@ router.post('/:id/rewritten', validateMongoId, validateRewrittenArticle, asyncHa
 router.get('/:id/rewritten', validateMongoId, asyncHandler(getRewrittenArticle));
 
 module.exports = router;
+
