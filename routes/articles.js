@@ -10,15 +10,21 @@ const {
   createRewrittenArticle,
   getRewrittenArticle
 } = require('../controllers/articleController');
+const { asyncHandler } = require('../middleware/errorHandler');
+const {
+  validateMongoId,
+  validatePagination,
+  validateArticle,
+  validateRewrittenArticle
+} = require('../middleware/validator');
 
-router.post('/scrape', scrapeArticles);
-router.post('/', createArticle);
-router.get('/', getArticles);
-router.get('/:id', getArticle);
-router.put('/:id', updateArticle);
-router.delete('/:id', deleteArticle);
-router.post('/:id/rewritten', createRewrittenArticle);
-router.get('/:id/rewritten', getRewrittenArticle);
+router.post('/scrape', asyncHandler(scrapeArticles));
+router.post('/', validateArticle, asyncHandler(createArticle));
+router.get('/', validatePagination, asyncHandler(getArticles));
+router.get('/:id', validateMongoId, asyncHandler(getArticle));
+router.put('/:id', validateMongoId, validateArticle, asyncHandler(updateArticle));
+router.delete('/:id', validateMongoId, asyncHandler(deleteArticle));
+router.post('/:id/rewritten', validateMongoId, validateRewrittenArticle, asyncHandler(createRewrittenArticle));
+router.get('/:id/rewritten', validateMongoId, asyncHandler(getRewrittenArticle));
 
 module.exports = router;
-

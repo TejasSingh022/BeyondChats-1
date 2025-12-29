@@ -1,11 +1,38 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const retry = require('../utils/retry');
+const AppError = require('../utils/AppError');
 
 const BASE_URL = 'https://beyondchats.com/blogs/';
+const REQUEST_TIMEOUT = 10000;
+const MAX_RETRIES = 3;
+
+const axiosInstance = axios.create({
+  timeout: REQUEST_TIMEOUT,
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+  }
+});
+
+const fetchWithRetry = async (url, options = {}) => {
+  return retry(
+    () => axiosInstance.get(url, options),
+    {
+      maxRetries: MAX_RETRIES,
+      delayMs: 1000,
+      backoff: 2,
+      retryable: (error) => {
+        return error.code === 'ECONNRESET' || 
+               error.code === 'ETIMEDOUT' || 
+               (error.response && error.response.status >= 500);
+      }
+    }
+  );
+};
 
 const getLastPageNumber = async () => {
   try {
-    const response = await axios.get(BASE_URL);
+    const response = await fetchWithRetry(BASE_URL);
     const $ = cheerio.load(response.data);
     
     let maxPage = 1;
@@ -47,7 +74,7 @@ const getLastPageNumber = async () => {
       while (currentPage <= 100 && !foundLast) {
         try {
           const testUrl = `${BASE_URL}page/${currentPage}/`;
-          const testResponse = await axios.get(testUrl, { timeout: 5000 });
+          const testResponse = await fetchWithRetry(testUrl, { timeout: 5000 });
           const test$ = cheerio.load(testResponse.data);
           const hasContent = test$('article, .post, .blog-post, [class*="article"]').length > 0;
           
@@ -65,14 +92,13 @@ const getLastPageNumber = async () => {
     
     return maxPage;
   } catch (error) {
-    console.error('Error finding last page:', error.message);
-    return 1;
+    throw new AppError(`Error finding last page: ${error.message}`, 500);
   }
 };
 
 const extractArticlesFromPage = async (url) => {
   try {
-    const response = await axios.get(url, { timeout: 10000 });
+    const response = await fetchWithRetry(url);
     const $ = cheerio.load(response.data);
     
     const articles = [];
@@ -160,25 +186,22 @@ const extractArticlesFromPage = async (url) => {
     
     return articles;
   } catch (error) {
-    console.error(`Error scraping page ${url}:`, error.message);
-    return [];
+    throw new AppError(`Error scraping page ${url}: ${error.message}`, 500);
   }
 };
 
 const getArticleContent = async (url) => {
   try {
-    const response = await axios.get(url);
+    const response = await fetchWithRetry(url);
     return response.data;
   } catch (error) {
-    console.error(`Error fetching article content from ${url}:`, error.message);
-    return null;
+    throw new AppError(`Error fetching article content from ${url}: ${error.message}`, 500);
   }
 };
 
 const scrapeOldestArticles = async () => {
   try {
     const lastPage = await getLastPageNumber();
-    console.log(`Found last page: ${lastPage}`);
     
     let allArticles = [];
     
@@ -217,19 +240,22 @@ const scrapeOldestArticles = async () => {
     
     const articlesWithContent = [];
     for (const article of oldestFive) {
-      const htmlContent = await getArticleContent(article.articleUrl);
-      if (htmlContent) {
-        articlesWithContent.push({
-          ...article,
-          htmlContent
-        });
+      try {
+        const htmlContent = await getArticleContent(article.articleUrl);
+        if (htmlContent) {
+          articlesWithContent.push({
+            ...article,
+            htmlContent
+          });
+        }
+      } catch (error) {
+        continue;
       }
     }
     
     return articlesWithContent;
   } catch (error) {
-    console.error('Error scraping oldest articles:', error.message);
-    throw error;
+    throw new AppError(`Error scraping oldest articles: ${error.message}`, 500);
   }
 };
 
@@ -239,4 +265,3 @@ module.exports = {
   extractArticlesFromPage,
   getArticleContent
 };
-
